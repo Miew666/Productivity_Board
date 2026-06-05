@@ -148,6 +148,7 @@ def _render_calendar_auth_prompt() -> None:
 
 def _render_event_item(event: dict, *, compact: bool = False) -> None:
     title = event.get("title", "Ohne Titel")
+    calendar_name = event.get("calendar_name")
     start_label = _format_event_datetime(
         event.get("start"),
         event.get("all_day", False),
@@ -156,12 +157,16 @@ def _render_event_item(event: dict, *, compact: bool = False) -> None:
 
     if compact:
         st.markdown(f"**{title}**")
+        if calendar_name:
+            st.caption(calendar_name)
         st.caption(f"🕐 {start_label}")
         if location:
             st.caption(f"📍 {location}")
         return
 
     st.markdown(f"**{title}**")
+    if calendar_name:
+        st.caption(calendar_name)
     st.write(f"🕐 {start_label}")
     if location:
         st.write(f"📍 {location}")
