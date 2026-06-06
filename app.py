@@ -7,7 +7,7 @@ from datetime import date, datetime
 import streamlit as st
 
 import config
-from services import google_calendar, google_tasks, weather
+from services import google_auth, google_calendar, google_gmail, google_tasks, weather
 
 # ---------------------------------------------------------------------------
 # Session State – zentrale Initialisierung für spätere Filter/Refresh-Logik
@@ -21,6 +21,8 @@ _DEFAULT_SESSION_STATE: dict[str, object] = {
     "weather_data": None,
     "tasks_data": None,
     "calendar_data": None,
+    "emails_data": None,
+    "unread_email_count": None,
 }
 
 
@@ -36,6 +38,8 @@ def _load_data() -> None:
     st.session_state["weather_data"] = weather.get_weather()
     st.session_state["tasks_data"] = google_tasks.get_upcoming_tasks()
     st.session_state["calendar_data"] = google_calendar.get_upcoming_events()
+    st.session_state["emails_data"] = google_gmail.get_latest_emails()
+    st.session_state["unread_email_count"] = google_gmail.get_unread_count()
     st.session_state["last_refresh_at"] = datetime.now()
 
 
@@ -135,15 +139,68 @@ def _render_task_item(task: dict) -> None:
     st.caption(f"Fällig: {due}")
 
 
-def _render_calendar_auth_prompt() -> None:
-    st.info("Google Kalender ist noch nicht verbunden.")
-    if st.button("Mit Google Kalender verbinden", type="primary"):
+def _clear_google_caches() -> None:
+    google_calendar.get_upcoming_events.clear()
+    google_gmail.get_latest_emails.clear()
+    google_gmail.get_unread_count.clear()
+
+
+def _render_google_auth_prompt() -> None:
+    st.info("Google-Konto ist noch nicht verbunden (Kalender & Gmail).")
+    if st.button("Mit Google verbinden", type="primary"):
         try:
-            if google_calendar.authenticate():
+            if google_auth.authenticate_interactive():
+                _clear_google_caches()
                 _load_data()
                 st.rerun()
         except FileNotFoundError as error:
             st.error(str(error))
+
+
+def _format_email_date(date_value: str | None) -> str:
+    if not date_value:
+        return "–"
+    try:
+        parsed = datetime.fromisoformat(date_value)
+        return parsed.strftime("%d.%m.%Y %H:%M")
+    except ValueError:
+        return date_value
+
+
+def _render_email_item(email: dict) -> None:
+    st.markdown(f"**{email.get('from', 'Unbekannter Absender')}**")
+    st.write(email.get("subject", "(Kein Betreff)"))
+    st.caption(email.get("snippet", ""))
+    date_label = _format_email_date(email.get("date"))
+    if date_label != "–":
+        st.caption(f"🕐 {date_label}")
+
+
+def _render_emails_list(emails: list[dict]) -> None:
+    if google_gmail.needs_authentication():
+        _render_google_auth_prompt()
+        return
+
+    if not emails:
+        st.info("Keine ungelesenen E-Mails im Posteingang.")
+        return
+
+    for email in emails:
+        with st.container(border=True):
+            _render_email_item(email)
+
+
+def _render_unread_email_summary(unread_count: int) -> None:
+    if google_gmail.needs_authentication():
+        return
+
+    with st.container(border=True):
+        if unread_count == 0:
+            st.write("Du hast **keine** ungelesenen Nachrichten.")
+        elif unread_count == 1:
+            st.write("Du hast **1** ungelesene Nachricht.")
+        else:
+            st.write(f"Du hast **{unread_count}** ungelesene Nachrichten.")
 
 
 def _render_event_item(event: dict, *, compact: bool = False) -> None:
@@ -177,7 +234,7 @@ def _render_event_item(event: dict, *, compact: bool = False) -> None:
 
 def _render_calendar_list(events: list[dict], limit: int | None = None) -> None:
     if google_calendar.needs_authentication():
-        _render_calendar_auth_prompt()
+        _render_google_auth_prompt()
         return
 
     display_events = events[:limit] if limit else events
@@ -208,9 +265,13 @@ def _render_overview_tab(
     weather_data: dict,
     tasks: list[dict],
     events: list[dict],
+    unread_count: int,
 ) -> None:
     st.subheader("Wetter")
     _render_weather_compact(weather_data)
+
+    st.subheader("E-Mails")
+    _render_unread_email_summary(unread_count)
 
     st.subheader(f"Nächste {config.OVERVIEW_CALENDAR_LIMIT} Termine")
     _render_calendar_list(events, limit=config.OVERVIEW_CALENDAR_LIMIT)
@@ -250,6 +311,11 @@ def _render_calendar_tab(events: list[dict]) -> None:
     _render_calendar_list(events)
 
 
+def _render_emails_tab(emails: list[dict]) -> None:
+    st.subheader("Ungelesene E-Mails")
+    _render_emails_list(emails)
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -268,6 +334,8 @@ def main() -> None:
         st.session_state["weather_data"] is None
         or st.session_state["tasks_data"] is None
         or st.session_state["calendar_data"] is None
+        or st.session_state["emails_data"] is None
+        or st.session_state["unread_email_count"] is None
     ):
         _load_data()
 
@@ -277,7 +345,7 @@ def main() -> None:
     with refresh_col:
         if st.button("🔄", help="Daten aktualisieren", use_container_width=True):
             weather.get_weather.clear()
-            google_calendar.get_upcoming_events.clear()
+            _clear_google_caches()
             _load_data()
             st.rerun()
 
@@ -289,19 +357,29 @@ def main() -> None:
     weather_data: dict = st.session_state["weather_data"] or {}
     tasks_data: list[dict] = st.session_state["tasks_data"] or []
     calendar_data: list[dict] = st.session_state["calendar_data"] or []
+    emails_data: list[dict] = st.session_state["emails_data"] or []
+    unread_email_count: int = st.session_state["unread_email_count"] or 0
 
-    tab_overview, tab_tasks, tab_calendar, tab_weather = st.tabs(
-        ["🏠 Übersicht", "✅ Tasks", "📅 Kalender", "☀️ Wetter"]
+    tab_overview, tab_tasks, tab_calendar, tab_emails, tab_weather = st.tabs(
+        ["🏠 Übersicht", "✅ Tasks", "📅 Kalender", "✉️ Mails", "☀️ Wetter"]
     )
 
     with tab_overview:
-        _render_overview_tab(weather_data, tasks_data, calendar_data)
+        _render_overview_tab(
+            weather_data,
+            tasks_data,
+            calendar_data,
+            unread_email_count,
+        )
 
     with tab_tasks:
         _render_tasks_tab(tasks_data)
 
     with tab_calendar:
         _render_calendar_tab(calendar_data)
+
+    with tab_emails:
+        _render_emails_tab(emails_data)
 
     with tab_weather:
         _render_weather_tab(weather_data)

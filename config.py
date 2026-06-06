@@ -17,12 +17,17 @@ LOCATION_TIMEZONE = "Europe/Vienna"
 WEATHER_CACHE_TTL_SECONDS = 15 * 60  # 15 Minuten
 TASKS_CACHE_TTL_SECONDS = 5 * 60  # 5 Minuten (für spätere API-Integration)
 CALENDAR_CACHE_TTL_SECONDS = 15 * 60  # 15 Minuten
+GMAIL_CACHE_TTL_SECONDS = 5 * 60  # 5 Minuten
 
-# Google Calendar API
-GOOGLE_CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+# Google APIs (Kalender + Gmail)
+GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/gmail.readonly",
+]
 GOOGLE_CALENDAR_ID = "primary"
 CALENDAR_EVENT_LIMIT = 5
 OVERVIEW_CALENDAR_LIMIT = 2
+GMAIL_MAX_RESULTS = 5
 
 # Open-Meteo API
 OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1/forecast"

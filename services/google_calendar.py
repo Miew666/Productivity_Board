@@ -6,57 +6,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 import streamlit as st
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 import config
+from services import google_auth
 
-SCOPES = config.GOOGLE_CALENDAR_SCOPES
-
-
-def _load_stored_credentials() -> Credentials | None:
-    if not config.GOOGLE_TOKEN_PATH.exists():
-        return None
-    return Credentials.from_authorized_user_file(config.GOOGLE_TOKEN_PATH, SCOPES)
-
-
-def _save_credentials(credentials: Credentials) -> None:
-    config.GOOGLE_TOKEN_PATH.write_text(credentials.to_json(), encoding="utf-8")
-
-
-def _get_valid_credentials(*, allow_interactive: bool = False) -> Credentials | None:
-    credentials = _load_stored_credentials()
-
-    if credentials and credentials.valid:
-        return credentials
-
-    if credentials and credentials.expired and credentials.refresh_token:
-        credentials.refresh(Request())
-        _save_credentials(credentials)
-        return credentials
-
-    if not allow_interactive:
-        return None
-
-    if not config.GOOGLE_CREDENTIALS_PATH.exists():
-        raise FileNotFoundError(
-            f"credentials.json nicht gefunden: {config.GOOGLE_CREDENTIALS_PATH}"
-        )
-
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(config.GOOGLE_CREDENTIALS_PATH),
-        SCOPES,
-    )
-    credentials = flow.run_local_server(port=0)
-    _save_credentials(credentials)
-    return credentials
+SCOPES = google_auth.SCOPES
 
 
 def needs_authentication() -> bool:
     """True, wenn noch kein gültiges Token vorhanden ist."""
-    return _get_valid_credentials(allow_interactive=False) is None
+    return google_auth.needs_authentication()
 
 
 def authenticate() -> bool:
@@ -64,9 +24,12 @@ def authenticate() -> bool:
     Startet den OAuth-Flow und speichert token.json.
     Gibt True zurück, wenn die Authentifizierung erfolgreich war.
     """
-    credentials = _get_valid_credentials(allow_interactive=True)
-    if credentials:
+    if google_auth.authenticate_interactive():
         get_upcoming_events.clear()
+        from services import google_gmail
+
+        google_gmail.get_latest_emails.clear()
+        google_gmail.get_unread_count.clear()
         return True
     return False
 
@@ -187,7 +150,7 @@ def _fetch_events_from_source() -> list[dict[str, Any]]:
             "calendar_name": str,
         }
     """
-    credentials = _get_valid_credentials(allow_interactive=False)
+    credentials = google_auth.get_valid_credentials(allow_interactive=False)
     if credentials is None:
         return []
 
