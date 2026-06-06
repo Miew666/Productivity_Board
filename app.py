@@ -155,6 +155,13 @@ def _clear_google_caches() -> None:
 
 
 def _render_google_auth_prompt() -> None:
+    if google_auth.is_cloud_deployment():
+        st.warning(
+            "Google-Anmeldung auf dem Server nur über Streamlit Secrets möglich. "
+            "Bitte `[google_token][json_data]` und `[google_credentials][json_data]` prüfen."
+        )
+        return
+
     st.info("Google-Konto ist noch nicht verbunden (Kalender & Gmail).")
     if st.button("Mit Google verbinden", type="primary"):
         try:

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
+import streamlit as st
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -11,13 +15,86 @@ import config
 SCOPES = config.GOOGLE_SCOPES
 
 
-def _load_stored_credentials() -> Credentials | None:
-    if not config.GOOGLE_TOKEN_PATH.exists():
+def _parse_json_data(raw_data: Any) -> dict[str, Any]:
+    """Wandelt Secret- oder Datei-Inhalt in ein Dictionary um."""
+    if isinstance(raw_data, dict):
+        return raw_data
+    if isinstance(raw_data, str):
+        return json.loads(raw_data)
+    raise ValueError("JSON-Daten müssen ein String oder Dictionary sein.")
+
+
+def _load_json_from_secrets(section: str) -> dict[str, Any] | None:
+    """Lädt JSON aus Streamlit Secrets: st.secrets[section]['json_data']."""
+    try:
+        secret_section = st.secrets[section]
+        json_data = secret_section["json_data"]
+        return _parse_json_data(json_data)
+    except (KeyError, TypeError, json.JSONDecodeError, FileNotFoundError):
         return None
-    return Credentials.from_authorized_user_file(config.GOOGLE_TOKEN_PATH, SCOPES)
+
+
+def _load_token_info() -> dict[str, Any] | None:
+    if config.GOOGLE_TOKEN_PATH.exists():
+        return _parse_json_data(
+            config.GOOGLE_TOKEN_PATH.read_text(encoding="utf-8")
+        )
+    return _load_json_from_secrets("google_token")
+
+
+def _load_client_config() -> dict[str, Any] | None:
+    if config.GOOGLE_CREDENTIALS_PATH.exists():
+        return _parse_json_data(
+            config.GOOGLE_CREDENTIALS_PATH.read_text(encoding="utf-8")
+        )
+    return _load_json_from_secrets("google_credentials")
+
+
+def _credentials_from_client_dict(client_config: dict[str, Any]) -> dict[str, Any]:
+    """
+    Normalisiert OAuth-Client-Credentials aus einem Dictionary.
+    Unterstützt das Standardformat von credentials.json (Schlüssel 'installed').
+    """
+    if "installed" in client_config or "web" in client_config:
+        return client_config
+    return {"installed": client_config}
+
+
+def _is_headless_environment() -> bool:
+    """True auf Streamlit Cloud, wenn nur Secrets und keine lokalen Dateien existieren."""
+    return (
+        not config.GOOGLE_TOKEN_PATH.exists()
+        and not config.GOOGLE_CREDENTIALS_PATH.exists()
+    )
+
+
+def _load_stored_credentials() -> Credentials | None:
+    token_info = _load_token_info()
+    if not token_info:
+        return None
+
+    credentials = Credentials.from_authorized_user_info(token_info, SCOPES)
+
+    if not credentials.client_id or not credentials.client_secret:
+        client_config = _load_client_config()
+        if client_config:
+            client_dict = _credentials_from_client_dict(client_config)
+            installed = client_dict.get("installed") or client_dict.get("web") or {}
+            credentials.client_id = credentials.client_id or installed.get("client_id")
+            credentials.client_secret = (
+                credentials.client_secret or installed.get("client_secret")
+            )
+            credentials.token_uri = credentials.token_uri or installed.get(
+                "token_uri", "https://oauth2.googleapis.com/token"
+            )
+
+    return credentials
 
 
 def _save_credentials(credentials: Credentials) -> None:
+    """Speichert Token nur lokal – auf Streamlit Cloud bleiben Secrets unverändert."""
+    if _is_headless_environment():
+        return
     config.GOOGLE_TOKEN_PATH.write_text(credentials.to_json(), encoding="utf-8")
 
 
@@ -41,18 +118,28 @@ def get_valid_credentials(*, allow_interactive: bool = False) -> Credentials | N
     if not allow_interactive:
         return None
 
-    if not config.GOOGLE_CREDENTIALS_PATH.exists():
+    if _is_headless_environment():
+        return None
+
+    client_config = _load_client_config()
+    if client_config is None:
         raise FileNotFoundError(
-            f"credentials.json nicht gefunden: {config.GOOGLE_CREDENTIALS_PATH}"
+            "Weder credentials.json noch Streamlit-Secret "
+            "[google_credentials][json_data] gefunden."
         )
 
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(config.GOOGLE_CREDENTIALS_PATH),
+    flow = InstalledAppFlow.from_client_config(
+        _credentials_from_client_dict(client_config),
         SCOPES,
     )
     credentials = flow.run_local_server(port=0)
     _save_credentials(credentials)
     return credentials
+
+
+def is_cloud_deployment() -> bool:
+    """True, wenn die App ohne lokale Google-Dateien aus Secrets läuft."""
+    return _is_headless_environment()
 
 
 def needs_authentication() -> bool:
@@ -61,6 +148,12 @@ def needs_authentication() -> bool:
 
 
 def authenticate_interactive() -> bool:
-    """Startet den OAuth-Flow und speichert token.json."""
+    """
+    Startet den OAuth-Flow lokal und speichert token.json.
+    Auf Streamlit Cloud ohne lokale Dateien wird kein Browser geöffnet.
+    """
+    if _is_headless_environment():
+        return False
+
     credentials = get_valid_credentials(allow_interactive=True)
     return credentials is not None
