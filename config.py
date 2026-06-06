@@ -29,6 +29,13 @@ CALENDAR_EVENT_LIMIT = 5
 OVERVIEW_CALENDAR_LIMIT = 2
 GMAIL_MAX_RESULTS = 5
 
+# Zug / ÖBB Pendelstrecke
+TRAIN_HOME_STATION = "St. Georgen am Steinfelde"
+TRAIN_WORK_STATION = "Wien Meidling"
+TRAIN_CONNECTION_LIMIT = 3
+TRAIN_MORNING_UNTIL_HOUR = 12  # vor 12:00 Uhr: Heimat -> Arbeit
+TRAIN_CACHE_TTL_SECONDS = 120  # 2 Minuten
+
 # Open-Meteo API
 OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1/forecast"
 

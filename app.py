@@ -7,7 +7,14 @@ from datetime import date, datetime
 import streamlit as st
 
 import config
-from services import google_auth, google_calendar, google_gmail, google_tasks, weather
+from services import (
+    google_auth,
+    google_calendar,
+    google_gmail,
+    google_tasks,
+    train_schedule,
+    weather,
+)
 
 # ---------------------------------------------------------------------------
 # Session State – zentrale Initialisierung für spätere Filter/Refresh-Logik
@@ -23,6 +30,7 @@ _DEFAULT_SESSION_STATE: dict[str, object] = {
     "calendar_data": None,
     "emails_data": None,
     "unread_email_count": None,
+    "train_data": None,
 }
 
 
@@ -40,6 +48,7 @@ def _load_data() -> None:
     st.session_state["calendar_data"] = google_calendar.get_upcoming_events()
     st.session_state["emails_data"] = google_gmail.get_latest_emails()
     st.session_state["unread_email_count"] = google_gmail.get_unread_count()
+    st.session_state["train_data"] = train_schedule.get_commute_schedule()
     st.session_state["last_refresh_at"] = datetime.now()
 
 
@@ -316,6 +325,55 @@ def _render_emails_tab(emails: list[dict]) -> None:
     _render_emails_list(emails)
 
 
+def _format_connection_time(value: str | None) -> str:
+    if not value:
+        return "–"
+    try:
+        parsed = datetime.fromisoformat(value)
+        return parsed.strftime("%H:%M")
+    except ValueError:
+        return value
+
+
+def _render_connection_item(connection: dict) -> None:
+    departure = _format_connection_time(connection.get("departure"))
+    arrival = _format_connection_time(connection.get("arrival"))
+    duration = connection.get("duration_minutes")
+    transfers = connection.get("transfers") or []
+    line_names = connection.get("line_names") or []
+
+    st.markdown(f"**{departure} → {arrival}**")
+    st.write(f"Dauer: {duration} Min.")
+
+    if line_names:
+        st.caption(" · ".join(line_names))
+
+    if transfers:
+        st.caption(f"Umstieg: {', '.join(transfers)}")
+    else:
+        st.caption("Direktverbindung")
+
+
+def _render_train_tab(train_data: dict) -> None:
+    direction_label = train_data.get("direction_label", "–")
+    st.subheader(f"Richtung: {direction_label}")
+
+    if train_data.get("error"):
+        st.warning(f"Zugdaten momentan nicht verfügbar: {train_data['error']}")
+
+    connections = train_data.get("connections") or []
+    if not connections and not train_data.get("error"):
+        st.info("Keine Verbindungen gefunden.")
+        return
+
+    for connection in connections:
+        delay = int(connection.get("delay_minutes") or 0)
+        with st.container(border=True):
+            if delay > 0:
+                st.error(f"Verspätung: +{delay} Minuten")
+            _render_connection_item(connection)
+
+
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
@@ -336,6 +394,7 @@ def main() -> None:
         or st.session_state["calendar_data"] is None
         or st.session_state["emails_data"] is None
         or st.session_state["unread_email_count"] is None
+        or st.session_state["train_data"] is None
     ):
         _load_data()
 
@@ -346,6 +405,8 @@ def main() -> None:
         if st.button("🔄", help="Daten aktualisieren", use_container_width=True):
             weather.get_weather.clear()
             _clear_google_caches()
+            train_schedule.get_commute_schedule.clear()
+            train_schedule.get_next_connections.clear()
             _load_data()
             st.rerun()
 
@@ -359,9 +420,10 @@ def main() -> None:
     calendar_data: list[dict] = st.session_state["calendar_data"] or []
     emails_data: list[dict] = st.session_state["emails_data"] or []
     unread_email_count: int = st.session_state["unread_email_count"] or 0
+    train_data: dict = st.session_state["train_data"] or {}
 
-    tab_overview, tab_tasks, tab_calendar, tab_emails, tab_weather = st.tabs(
-        ["🏠 Übersicht", "✅ Tasks", "📅 Kalender", "✉️ Mails", "☀️ Wetter"]
+    tab_overview, tab_tasks, tab_calendar, tab_emails, tab_train, tab_weather = st.tabs(
+        ["🏠 Übersicht", "✅ Tasks", "📅 Kalender", "✉️ Mails", "🚂 Zug", "☀️ Wetter"]
     )
 
     with tab_overview:
@@ -380,6 +442,9 @@ def main() -> None:
 
     with tab_emails:
         _render_emails_tab(emails_data)
+
+    with tab_train:
+        _render_train_tab(train_data)
 
     with tab_weather:
         _render_weather_tab(weather_data)
