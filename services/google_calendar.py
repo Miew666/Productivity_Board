@@ -30,6 +30,9 @@ def authenticate() -> bool:
 
         google_gmail.get_latest_emails.clear()
         google_gmail.get_unread_count.clear()
+        from services import google_tasks
+
+        google_tasks.get_tasks_by_lists.clear()
         return True
     return False
 

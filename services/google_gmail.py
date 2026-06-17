@@ -118,6 +118,9 @@ def authenticate() -> bool:
         from services import google_calendar
 
         google_calendar.get_upcoming_events.clear()
+        from services import google_tasks
+
+        google_tasks.get_tasks_by_lists.clear()
         return True
     return False
 

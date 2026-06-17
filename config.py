@@ -19,11 +19,18 @@ TASKS_CACHE_TTL_SECONDS = 5 * 60  # 5 Minuten (für spätere API-Integration)
 CALENDAR_CACHE_TTL_SECONDS = 15 * 60  # 15 Minuten
 GMAIL_CACHE_TTL_SECONDS = 5 * 60  # 5 Minuten
 
-# Google APIs (Kalender + Gmail)
+# Google APIs (Kalender + Gmail + Tasks)
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/tasks.readonly",
 ]
+GOOGLE_TASK_LIST_NAMES = [
+    "Aufgabenkorb",
+    "To-do List für Pam u. Basti",
+]
+OVERVIEW_TASKS_PER_LIST = 1
+TASKS_TAB_LIMIT_PER_LIST = 5
 GOOGLE_CALENDAR_ID = "primary"
 CALENDAR_EVENT_LIMIT = 5
 OVERVIEW_CALENDAR_LIMIT = 2
@@ -42,7 +49,6 @@ OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1/forecast"
 # App-Einstellungen
 APP_TITLE = "Productivity Board"
 APP_ICON = "📋"
-OVERVIEW_TASK_LIMIT = 3
 FORECAST_DAYS = 5
 
 # UI

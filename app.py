@@ -44,7 +44,7 @@ def _init_session_state() -> None:
 def _load_data() -> None:
     """Lädt alle Service-Daten und speichert sie im Session State."""
     st.session_state["weather_data"] = weather.get_weather()
-    st.session_state["tasks_data"] = google_tasks.get_upcoming_tasks()
+    st.session_state["tasks_data"] = google_tasks.get_tasks_by_lists()
     st.session_state["calendar_data"] = google_calendar.get_upcoming_events()
     st.session_state["emails_data"] = google_gmail.get_latest_emails()
     st.session_state["unread_email_count"] = google_gmail.get_unread_count()
@@ -152,6 +152,7 @@ def _clear_google_caches() -> None:
     google_calendar.get_upcoming_events.clear()
     google_gmail.get_latest_emails.clear()
     google_gmail.get_unread_count.clear()
+    google_tasks.get_tasks_by_lists.clear()
 
 
 def _render_google_auth_prompt() -> None:
@@ -162,7 +163,7 @@ def _render_google_auth_prompt() -> None:
         )
         return
 
-    st.info("Google-Konto ist noch nicht verbunden (Kalender & Gmail).")
+    st.info("Google-Konto ist noch nicht verbunden (Kalender, Gmail & Tasks).")
     if st.button("Mit Google verbinden", type="primary"):
         try:
             if google_auth.authenticate_interactive():
@@ -277,9 +278,40 @@ def _render_tasks_list(tasks: list[dict], limit: int | None = None) -> None:
             _render_task_item(task)
 
 
+def _render_task_lists(
+    tasks_data: dict,
+    *,
+    limit_per_list: int,
+) -> None:
+    if google_tasks.needs_authentication():
+        _render_google_auth_prompt()
+        return
+
+    if tasks_data.get("error"):
+        st.warning(f"Tasks momentan nicht verfügbar: {tasks_data['error']}")
+
+    task_lists = tasks_data.get("lists") or []
+    if not task_lists:
+        st.info("Keine Task-Listen gefunden.")
+        return
+
+    for task_list in task_lists:
+        list_title = task_list.get("list_title", "Unbenannte Liste")
+        list_error = task_list.get("error")
+        tasks = task_list.get("tasks") or []
+
+        st.subheader(list_title)
+
+        if list_error:
+            st.warning(list_error)
+            continue
+
+        _render_tasks_list(tasks, limit=limit_per_list)
+
+
 def _render_overview_tab(
     weather_data: dict,
-    tasks: list[dict],
+    tasks_data: dict,
     events: list[dict],
     unread_count: int,
 ) -> None:
@@ -292,11 +324,14 @@ def _render_overview_tab(
     st.subheader(f"Nächste {config.OVERVIEW_CALENDAR_LIMIT} Termine")
     _render_calendar_list(events, limit=config.OVERVIEW_CALENDAR_LIMIT)
 
-    st.subheader(f"Top {config.OVERVIEW_TASK_LIMIT} Tasks")
-    _render_tasks_list(tasks, limit=config.OVERVIEW_TASK_LIMIT)
+    st.subheader("Tasks")
+    _render_task_lists(
+        tasks_data,
+        limit_per_list=config.OVERVIEW_TASKS_PER_LIST,
+    )
 
 
-def _render_tasks_tab(tasks: list[dict]) -> None:
+def _render_tasks_tab(tasks_data: dict) -> None:
     with st.container(border=True):
         col_filter, col_sort = st.columns(2)
         with col_filter:
@@ -312,7 +347,10 @@ def _render_tasks_tab(tasks: list[dict]) -> None:
                 index=0 if st.session_state["task_sort_by"] == "due_date" else 1,
             )
 
-    _render_tasks_list(tasks)
+    _render_task_lists(
+        tasks_data,
+        limit_per_list=config.TASKS_TAB_LIMIT_PER_LIST,
+    )
 
 
 def _render_weather_tab(weather_data: dict) -> None:
@@ -423,7 +461,7 @@ def main() -> None:
             st.caption(f"Aktualisiert: {last_refresh.strftime('%H:%M:%S')}")
 
     weather_data: dict = st.session_state["weather_data"] or {}
-    tasks_data: list[dict] = st.session_state["tasks_data"] or []
+    tasks_data: dict = st.session_state["tasks_data"] or {}
     calendar_data: list[dict] = st.session_state["calendar_data"] or []
     emails_data: list[dict] = st.session_state["emails_data"] or []
     unread_email_count: int = st.session_state["unread_email_count"] or 0
