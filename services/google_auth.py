@@ -28,10 +28,29 @@ def _load_json_from_secrets(section: str) -> dict[str, Any] | None:
     """Lädt JSON aus Streamlit Secrets: st.secrets[section]['json_data']."""
     try:
         secret_section = st.secrets[section]
-        json_data = secret_section["json_data"]
-        return _parse_json_data(json_data)
-    except (KeyError, TypeError, json.JSONDecodeError, FileNotFoundError):
+
+        if hasattr(secret_section, "to_dict"):
+            secret_section = secret_section.to_dict()
+        elif not isinstance(secret_section, dict):
+            secret_section = dict(secret_section)
+
+        if "json_data" in secret_section:
+            return _parse_json_data(secret_section["json_data"])
+
+        # Fallback: Secret-Block enthält bereits die Felder direkt
+        if section == "google_token" and (
+            "token" in secret_section or "refresh_token" in secret_section
+        ):
+            return secret_section
+
+        if section == "google_credentials" and (
+            "installed" in secret_section or "web" in secret_section
+        ):
+            return secret_section
+    except (KeyError, TypeError, json.JSONDecodeError, FileNotFoundError, AttributeError):
         return None
+
+    return None
 
 
 def _load_token_info() -> dict[str, Any] | None:

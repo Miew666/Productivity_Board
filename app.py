@@ -44,7 +44,15 @@ def _init_session_state() -> None:
 def _load_data() -> None:
     """Lädt alle Service-Daten und speichert sie im Session State."""
     st.session_state["weather_data"] = weather.get_weather()
-    st.session_state["tasks_data"] = google_tasks.get_tasks_by_lists()
+
+    try:
+        st.session_state["tasks_data"] = google_tasks.get_tasks_by_lists()
+    except Exception as error:
+        st.session_state["tasks_data"] = {
+            "lists": [],
+            "error": f"Tasks konnten nicht geladen werden: {error}",
+        }
+
     st.session_state["calendar_data"] = google_calendar.get_upcoming_events()
     st.session_state["emails_data"] = google_gmail.get_latest_emails()
     st.session_state["unread_email_count"] = google_gmail.get_unread_count()

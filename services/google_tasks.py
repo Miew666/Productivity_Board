@@ -10,6 +10,15 @@ from googleapiclient.discovery import build
 import config
 from services import google_auth
 
+_DEFAULT_TASK_LIST_NAMES = [
+    "Aufgabenkorb",
+    "To-do List für Pam u. Basti",
+]
+
+
+def _configured_task_list_names() -> list[str]:
+    return getattr(config, "GOOGLE_TASK_LIST_NAMES", _DEFAULT_TASK_LIST_NAMES)
+
 
 def _build_tasks_service() -> Any | None:
     credentials = google_auth.get_valid_credentials(allow_interactive=False)
@@ -47,8 +56,8 @@ def _fetch_all_task_lists(service: Any) -> list[dict[str, Any]]:
             service.tasklists()
             .list(maxResults=100, pageToken=page_token)
             .execute()
-        )
-        task_lists.extend(response.get("items", []))
+        ) or {}
+        task_lists.extend(response.get("items") or [])
         page_token = response.get("nextPageToken")
         if not page_token:
             break
@@ -81,8 +90,8 @@ def _fetch_tasks_for_list(service: Any, list_id: str) -> list[dict[str, Any]]:
                 pageToken=page_token,
             )
             .execute()
-        )
-        tasks.extend(response.get("items", []))
+        ) or {}
+        tasks.extend(response.get("items") or [])
         page_token = response.get("nextPageToken")
         if not page_token:
             break
@@ -125,7 +134,7 @@ def _fetch_tasks_from_source() -> dict[str, Any]:
     all_lists = _fetch_all_task_lists(service)
     result_lists: list[dict[str, Any]] = []
 
-    for list_title in config.GOOGLE_TASK_LIST_NAMES:
+    for list_title in _configured_task_list_names():
         task_list = _find_task_list_by_title(all_lists, list_title)
 
         if task_list is None:
@@ -172,7 +181,10 @@ def authenticate() -> bool:
     return False
 
 
-@st.cache_data(ttl=config.TASKS_CACHE_TTL_SECONDS, show_spinner=False)
+@st.cache_data(
+    ttl=getattr(config, "TASKS_CACHE_TTL_SECONDS", 300),
+    show_spinner=False,
+)
 def get_tasks_by_lists() -> dict[str, Any]:
     """
     Liefert Aufgaben der konfigurierten Google-Task-Listen.
@@ -190,7 +202,7 @@ def get_tasks_by_lists() -> dict[str, Any]:
                     "tasks": [],
                     "error": str(error),
                 }
-                for title in config.GOOGLE_TASK_LIST_NAMES
+                for title in _configured_task_list_names()
             ],
             "error": str(error),
         }
